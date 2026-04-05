@@ -1,11 +1,11 @@
 <?php
-require '../includes/auth.php';
-requireLogin();
 require '../config/database.php';
 
-$id = $_GET['id'];
+$id = $_GET['id'] ?? null;
+if ($id) {
+    $stmt = $pdo->prepare("DELETE FROM articles WHERE id=:id");
+    $stmt->execute(['id'=>$id]);
+}
 
-$stmt = $pdo->prepare("DELETE FROM articles WHERE id=:id");
-$stmt->execute(['id'=>$id]);
-
-header("Location: ../index.php");
+header('Location: ../index.php');
+exit;
