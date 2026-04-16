@@ -100,7 +100,11 @@ if ($favoriteId) {
                 </p>
                 <?php if (isset($_SESSION['user_id'])): ?>
                     <a href="articles/edit.php?id=<?= $a['id'] ?>" class="btn btn-sm btn-warning">Edit</a>
-                    <a href="articles/delete.php?id=<?= $a['id'] ?>" class="btn btn-sm btn-danger">Delete</a>
+                    <form method="post" action="articles/delete.php" style="display:inline;">
+                        <input type="hidden" name="id" value="<?= $a['id'] ?>">
+                        <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
+                        <button class="btn btn-sm btn-danger">Delete</button>
+                    </form>
                 <?php endif; ?>
                 <a href="articles/favorite.php?id=<?= $a['id'] ?>" class="btn btn-sm btn-success">Set as Favorite</a>
             </div>
