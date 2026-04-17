@@ -1,138 +1,163 @@
 <?php
+declare(strict_types=1);
+
 require 'config/database.php';
+require 'repositories/ArticleRepository.php';
 require 'includes/header.php';
 
-// ====== Search ======
-$search = $_GET['search'] ?? '';
+// =====================
+// INIT REPOSITORY
+// =====================
+$repo = new ArticleRepository($pdo);
 
-// ====== Pagination settings ======
-$perPage = 6; // articles per page
-$page = max(1, intval($_GET['page'] ?? 1));
+// =====================
+// INPUTS
+// =====================
+$search = trim($_GET['search'] ?? '');
+$sort   = $_GET['sort'] ?? 'date_desc';
+
+$perPage = 6;
+$page = max(1, (int)($_GET['page'] ?? 1));
 $offset = ($page - 1) * $perPage;
 
-// ====== Count total articles for pagination ======
-$countSql = "
-    SELECT COUNT(*) 
-    FROM articles a
-    LEFT JOIN authors au ON a.author_id = au.id
-    LEFT JOIN publications p ON a.publication_id = p.id
-";
-$params = [];
-if ($search) {
-    $countSql .= " WHERE a.title ILIKE :search OR au.name ILIKE :search OR p.title ILIKE :search";
-    $params['search'] = "%$search%";
-}
-$countStmt = $pdo->prepare($countSql);
-$countStmt->execute($params);
-$totalArticles = $countStmt->fetchColumn();
-$totalPages = ceil($totalArticles / $perPage);
+// =====================
+// SORT WHITELIST
+// =====================
+$sortOptions = [
+    'date_desc'   => 'a.created_at DESC',
+    'date_asc'    => 'a.created_at ASC',
+    'title_asc'   => 'a.title ASC',
+    'title_desc'  => 'a.title DESC',
+    'author_asc'  => 'au.name ASC',
+    'author_desc' => 'au.name DESC'
+];
 
-// ====== Fetch articles for current page ======
-$sql = "
-    SELECT a.id, a.title, a.created_at, 
-           au.name AS author_name, 
-           p.title AS publication_title
-    FROM articles a
-    LEFT JOIN authors au ON a.author_id = au.id
-    LEFT JOIN publications p ON a.publication_id = p.id
-";
-if ($search) {
-    $sql .= " WHERE a.title ILIKE :search OR au.name ILIKE :search OR p.title ILIKE :search";
-}
-$sql .= " ORDER BY a.created_at DESC LIMIT $perPage OFFSET $offset";
+$orderBy = $sortOptions[$sort] ?? $sortOptions['date_desc'];
 
-$stmt = $pdo->prepare($sql);
-if ($search) {
-    $stmt->bindValue(':search', "%$search%", PDO::PARAM_STR);
-}
-$stmt->execute();
-$articles = $stmt->fetchAll(PDO::FETCH_ASSOC);
+// =====================
+// DATA FROM REPOSITORY
+// =====================
+$totalArticles = $repo->count($search);
+$totalPages = max(1, (int)ceil($totalArticles / $perPage));
 
-// ====== Fetch favorite article separately ======
-$favoriteId = $_COOKIE['favorite_article'] ?? null;
+$articles = $repo->getAll(
+    $search,
+    $orderBy,
+    $perPage,
+    $offset
+);
+
+// =====================
+// FAVORITE ARTICLE
+// =====================
 $favorite = null;
 
-if ($favoriteId) {
-    $favStmt = $pdo->prepare("
-        SELECT a.id, a.title, au.name AS author_name, p.title AS publication_title
-        FROM articles a
-        LEFT JOIN authors au ON a.author_id = au.id
-        LEFT JOIN publications p ON a.publication_id = p.id
-        WHERE a.id = :id
-        LIMIT 1
-    ");
-    $favStmt->execute(['id' => $favoriteId]);
-    $favorite = $favStmt->fetch(PDO::FETCH_ASSOC);
+if (!empty($_COOKIE['favorite_article'])) {
+    $favorite = $repo->findFavorite((int)$_COOKIE['favorite_article']);
 }
 ?>
 
-<!-- ====== Search Form ====== -->
-<form method="get" class="mb-4">
-    <div class="input-group">
-        <input type="text" name="search" value="<?= htmlspecialchars($search) ?>" class="form-control" placeholder="Search articles, authors or publications...">
-        <button class="btn btn-primary">Search</button>
-    </div>
+<!-- ================= SEARCH ================= -->
+<form method="get" class="mb-3">
+    <input type="text"
+           name="search"
+           value="<?= htmlspecialchars($search) ?>"
+           class="form-control"
+           placeholder="Search articles...">
 </form>
 
-<!-- ====== Favorite Article Block ====== -->
+<!-- ================= SORT ================= -->
+<form method="get" class="mb-3">
+    <input type="hidden" name="search" value="<?= htmlspecialchars($search) ?>">
+
+    <select name="sort" class="form-select" onchange="this.form.submit()">
+        <option value="date_desc"   <?= $sort==='date_desc'?'selected':'' ?>>Newest</option>
+        <option value="date_asc"    <?= $sort==='date_asc'?'selected':'' ?>>Oldest</option>
+        <option value="title_asc"   <?= $sort==='title_asc'?'selected':'' ?>>Title A-Z</option>
+        <option value="title_desc"  <?= $sort==='title_desc'?'selected':'' ?>>Title Z-A</option>
+        <option value="author_asc"  <?= $sort==='author_asc'?'selected':'' ?>>Author A-Z</option>
+        <option value="author_desc" <?= $sort==='author_desc'?'selected':'' ?>>Author Z-A</option>
+    </select>
+</form>
+
+<!-- ================= FAVORITE ================= -->
 <?php if ($favorite): ?>
-    <div class="alert alert-success shadow p-4 mb-4" style="font-size:1.1rem; border-left: 5px solid #28a745;">
-        <h4 class="mb-2">⭐ Favorite Article:</h4>
-        <strong><?= htmlspecialchars($favorite['title']) ?></strong><br>
-        <em>Author: <?= htmlspecialchars($favorite['author_name'] ?? 'N/A') ?></em><br>
-        <em>Publication: <?= htmlspecialchars($favorite['publication_title'] ?? 'N/A') ?></em>
+    <div class="alert alert-success mb-4">
+        <strong>⭐ Favorite:</strong><br>
+        <?= htmlspecialchars($favorite['title']) ?><br>
+        Author: <?= htmlspecialchars($favorite['author_name'] ?? 'N/A') ?><br>
+        Publication: <?= htmlspecialchars($favorite['publication_title'] ?? 'N/A') ?>
     </div>
 <?php endif; ?>
 
+<!-- ================= ARTICLES ================= -->
 <h2>Articles</h2>
+
 <div class="row">
 <?php foreach ($articles as $a): ?>
     <div class="col-md-4 mb-3">
-        <div class="card h-100 shadow-sm position-relative <?= $a['id'] == $favoriteId ? 'border-success bg-light' : '' ?>">
-            <?php if ($a['id'] == $favoriteId): ?>
-                <span class="badge bg-success position-absolute top-0 end-0 m-2">⭐ Favorite</span>
-            <?php endif; ?>
+        <div class="card h-100">
+
             <div class="card-body">
-                <h5 class="card-title"><?= htmlspecialchars($a['title']) ?></h5>
-                <p class="card-text">
+                <h5><?= htmlspecialchars($a['title']) ?></h5>
+
+                <p>
                     Author: <?= htmlspecialchars($a['author_name'] ?? 'N/A') ?><br>
                     Publication: <?= htmlspecialchars($a['publication_title'] ?? 'N/A') ?>
                 </p>
+
                 <?php if (isset($_SESSION['user_id'])): ?>
-                    <a href="articles/edit.php?id=<?= $a['id'] ?>" class="btn btn-sm btn-warning">Edit</a>
+                    <a href="articles/edit.php?id=<?= $a['id'] ?>" class="btn btn-warning btn-sm">Edit</a>
+
                     <form method="post" action="articles/delete.php" style="display:inline;">
                         <input type="hidden" name="id" value="<?= $a['id'] ?>">
                         <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
-                        <button class="btn btn-sm btn-danger">Delete</button>
+                        <button class="btn btn-danger btn-sm">Delete</button>
                     </form>
                 <?php endif; ?>
-                <a href="articles/favorite.php?id=<?= $a['id'] ?>" class="btn btn-sm btn-success">Set as Favorite</a>
+
+                <a href="articles/favorite.php?id=<?= $a['id'] ?>"
+                   class="btn btn-success btn-sm">
+                    Favorite
+                </a>
             </div>
+
         </div>
     </div>
 <?php endforeach; ?>
 </div>
 
-<!-- ====== Pagination Links ====== -->
-<nav aria-label="Page navigation">
+<!-- ================= PAGINATION ================= -->
+<nav>
     <ul class="pagination justify-content-center mt-4">
+
         <?php if ($page > 1): ?>
             <li class="page-item">
-                <a class="page-link" href="?search=<?= urlencode($search) ?>&page=<?= $page-1 ?>">Previous</a>
+                <a class="page-link"
+                   href="?search=<?= urlencode($search) ?>&sort=<?= $sort ?>&page=<?= $page-1 ?>">
+                    Prev
+                </a>
             </li>
         <?php endif; ?>
 
         <?php for ($p = 1; $p <= $totalPages; $p++): ?>
             <li class="page-item <?= $p == $page ? 'active' : '' ?>">
-                <a class="page-link" href="?search=<?= urlencode($search) ?>&page=<?= $p ?>"><?= $p ?></a>
+                <a class="page-link"
+                   href="?search=<?= urlencode($search) ?>&sort=<?= $sort ?>&page=<?= $p ?>">
+                    <?= $p ?>
+                </a>
             </li>
         <?php endfor; ?>
 
         <?php if ($page < $totalPages): ?>
             <li class="page-item">
-                <a class="page-link" href="?search=<?= urlencode($search) ?>&page=<?= $page+1 ?>">Next</a>
+                <a class="page-link"
+                   href="?search=<?= urlencode($search) ?>&sort=<?= $sort ?>&page=<?= $page+1 ?>">
+                    Next
+                </a>
             </li>
         <?php endif; ?>
+
     </ul>
 </nav>
 

@@ -3,6 +3,9 @@ require '../config/database.php';
 require '../includes/header.php';
 require '../config/csrf.php';
 check_csrf();
+if (empty($_SESSION['form_nonce'])) {
+    $_SESSION['form_nonce'] = bin2hex(random_bytes(16));
+}
 
 $errors = [];
 
@@ -12,19 +15,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $authorName = trim($_POST['author_name']);
     $publicationTitle = trim($_POST['publication_title']);
 
+        if (
+        empty($_POST['request_nonce']) ||
+        empty($_SESSION['form_nonce']) ||
+        $_POST['request_nonce'] !== $_SESSION['form_nonce']
+    ) {
+        die("Replay attack detected: invalid nonce");
+    }
+
     // ===== VALIDATION =====
     if (empty($title)) {
         $errors[] = "Title is required";
-    } elseif (strlen($title) < 3) {
-        $errors[] = "Title must be at least 3 characters";
+    } elseif (strlen($title) < 3 || strlen($title)>255) {
+        $errors[] = "Title must me in constraints 3-255 length";
     }
+
 
     if (empty($authorName)) {
         $errors[] = "Author name is required";
+    }elseif (strlen($authorName) < 3 || strlen($authorName)>255) {
+        $errors[] = "Author name must me in constraints 3-255 length";
+    } elseif (!preg_match('/^[^0-9]+$/', $authorName)) {
+    $errors[]="Author name must not have numbers.";
     }
 
     if (empty($publicationTitle)) {
         $errors[] = "Publication title is required";
+    }elseif (strlen($publicationTitle) < 3 || strlen($publicationTitle)>255) {
+        $errors[] = "Publication title must me in constraints 3-255 length";
     }
 
     // Ако няма грешки -> записваме
@@ -67,6 +85,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'pub_id' => $publicationId
         ]);
 
+    
+        unset($_SESSION['form_nonce']);
         header('Location: ../index.php');
         exit;
     }
@@ -96,6 +116,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
     <button class="btn btn-primary">Add Article</button>
     <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
+    <input type="hidden" name="request_nonce" value="<?= $_SESSION['form_nonce'] ?>">
 </form>
 
 <?php require '../includes/footer.php'; ?>
